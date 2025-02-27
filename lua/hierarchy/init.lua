@@ -1,9 +1,8 @@
 local M = {}
 
 M.reference_tree = {}
-M.processed_items = {}
 M.pending_items = 0
-M.max_depth = 3
+M.depth = 3
 M.current_item = nil
 M.refs_buf = nil
 M.refs_ns = vim.api.nvim_create_namespace("function_references")
@@ -22,8 +21,8 @@ function M.safe_call(fn, ...)
 end
 
 function M.process_item_calls(item, current_depth, parent_node)
-	local item_id = item.name .. ":" .. tostring(item.selectionRange.start.line)
-	if M.processed_items[item_id] or current_depth > M.max_depth then
+	-- Stop if we've exceeded the maximum depth
+	if current_depth > M.depth then
 		M.pending_items = M.pending_items - 1
 		if M.pending_items == 0 then
 			M.display_custom_ui()
@@ -40,13 +39,11 @@ function M.process_item_calls(item, current_depth, parent_node)
 		return
 	end
 
-	M.processed_items[item_id] = true
-
 	local params = {
 		item = item
 	}
 
-	vim.lsp.buf_request(0, 'callHierarchy/outgoingCalls', params, function(err, result, ctx, config)
+	vim.lsp.buf_request(0, 'callHierarchy/outgoingCalls', params, function(err, result)
 		local current_node = nil
 
 		if current_depth > 1 then
@@ -77,8 +74,6 @@ function M.process_item_calls(item, current_depth, parent_node)
 			for _, call in ipairs(result) do
 				local target = call.to
 
-				local target_id = target.name .. ":" .. tostring(target.selectionRange.start.line)
-
 				local next_parent = current_node or parent_node
 
 				M.pending_items = M.pending_items + 1
@@ -93,48 +88,6 @@ function M.process_item_calls(item, current_depth, parent_node)
 		if M.pending_items == 0 then
 			M.display_custom_ui()
 		end
-	end)
-end
-
-function M.find_recursive_calls(depth)
-	M.reference_tree = {
-		name = "",
-		uri = "",
-		range = {},
-		selectionRange = {},
-		references = {},
-		display = ""
-	}
-	M.processed_items = {}
-	M.pending_items = 0
-	M.max_depth = depth or 3
-
-	local params = vim.lsp.util.make_position_params()
-
-	vim.lsp.buf_request(0, 'textDocument/prepareCallHierarchy', params, function(err, result, ctx, config)
-		if err or not result or vim.tbl_isempty(result) then
-			vim.notify("Could not prepare call hierarchy", vim.log.levels.ERROR)
-			return
-		end
-
-		local item = result[1]
-		M.current_item = item
-
-		M.reference_tree = {
-			name = item.name,
-			uri = item.uri,
-			range = item.range,
-			selectionRange = item.selectionRange,
-			references = {},
-			display = item.name .. " [" .. vim.fn.fnamemodify(item.uri, ":t") .. ":" ..
-				(item.selectionRange.start.line + 1) .. "]",
-			expanded = false
-		}
-
-		M.pending_items = 1
-		vim.defer_fn(function()
-			M.process_item_calls(item, 1, M.reference_tree)
-		end, 0)
 	end)
 end
 
@@ -174,7 +127,7 @@ function M.build_reference_lines(node, lines, indent, expanded_nodes)
 	})
 
 	if expanded and has_refs then
-		for name, child in pairs(node.references) do
+		for _, child in pairs(node.references) do
 			M.build_reference_lines(child, lines, indent + 1, expanded_nodes)
 		end
 	end
@@ -281,7 +234,6 @@ function M.display_custom_ui()
 	)
 
 	local win_width = math.floor(vim.api.nvim_get_option("columns") * 0.4)
-	local win_height = math.floor(vim.api.nvim_get_option("lines") * 0.7)
 
 	local win_id = nil
 	for _, wid in ipairs(vim.api.nvim_list_wins()) do
@@ -435,14 +387,58 @@ function M.goto_function_definition()
 	end
 end
 
+function M.find_recursive_calls(depth)
+	M.reference_tree = {
+		name = "",
+		uri = "",
+		range = {},
+		selectionRange = {},
+		references = {},
+		display = ""
+	}
+	M.pending_items = 0
+	M.depth = depth or 3
+
+	local params = vim.lsp.util.make_position_params()
+
+	vim.lsp.buf_request(0, 'textDocument/prepareCallHierarchy', params, function(err, result)
+		if err or not result or vim.tbl_isempty(result) then
+			vim.notify("Could not prepare call hierarchy", vim.log.levels.ERROR)
+			return
+		end
+
+		local item = result[1]
+		M.current_item = item
+
+		M.reference_tree = {
+			name = item.name,
+			uri = item.uri,
+			range = item.range,
+			selectionRange = item.selectionRange,
+			references = {},
+			display = item.name .. " [" .. vim.fn.fnamemodify(item.uri, ":t") .. ":" ..
+				(item.selectionRange.start.line + 1) .. "]",
+			expanded = false
+		}
+
+		M.pending_items = 1
+		vim.defer_fn(function()
+			M.process_item_calls(item, 1, M.reference_tree)
+		end, 0)
+	end)
+end
+
 function M.setup(opts)
 	opts = opts or {}
+	if opts.depth then
+		M.depth = opts.depth
+	end
 
 	vim.api.nvim_create_user_command("FunctionReferences", function(cmd_opts)
-		local depth = 3
+		local depth = M.depth
 		if cmd_opts.args and cmd_opts.args ~= "" then
 			local args = vim.split(cmd_opts.args, " ")
-			depth = tonumber(args[1]) or 3
+			depth = tonumber(args[1]) or M.depth
 		end
 
 		local clients = vim.lsp.get_active_clients({ bufnr = 0 })
@@ -451,7 +447,6 @@ function M.setup(opts)
 			return
 		end
 
-		vim.notify("Analyzing function references recursively (depth " .. depth .. ")...", vim.log.levels.INFO)
 		M.find_recursive_calls(depth)
 	end, {
 		nargs = "?",

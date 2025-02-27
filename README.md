@@ -2,7 +2,7 @@
 ![image](https://i.imgur.com/HGsRt4X.png)
 
 ## What is it?
-hierarchy.nvim replicates the "Call Hierarchy" functionality from VS C*de, showing (recursively) the functions that a given function calls.
+`hierarchy.nvim` replicates the "Call Hierarchy" functionality from VS C*de, showing (recursively) the functions that a given function calls.
 
 ## Functionality
 With your LSP enabled, hover over a function, use the `:FunctionReferences` command, and observe the call hierarchy of that function. Press `<Enter>` over an item in the list to expand its list of children, and type `gd` over an item to jump to its definition.

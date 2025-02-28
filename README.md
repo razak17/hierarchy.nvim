@@ -15,7 +15,7 @@ return {
 }
 ```
 
-## Option Defaults
+## Default Options
 ```lua
 local opts = {
     -- Determines how many levels deep the call hierarchy shows

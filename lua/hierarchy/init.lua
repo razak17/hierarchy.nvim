@@ -387,7 +387,8 @@ function M.goto_function_definition()
 	end
 end
 
-function M.find_recursive_calls(depth)
+function M.find_recursive_calls(depth, offset_encoding)
+  offset_encoding = offset_encoding or "utf-16"
 	M.reference_tree = {
 		name = "",
 		uri = "",
@@ -399,7 +400,7 @@ function M.find_recursive_calls(depth)
 	M.pending_items = 0
 	M.depth = depth or 3
 
-	local params = vim.lsp.util.make_position_params()
+	local params = vim.lsp.util.make_position_params(0, offset_encoding)
 
 	vim.lsp.buf_request(0, 'textDocument/prepareCallHierarchy', params, function(err, result)
 		if err or not result or vim.tbl_isempty(result) then
